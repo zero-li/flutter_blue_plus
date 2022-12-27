@@ -43,6 +43,14 @@ public class ProtoMaker {
         return p.build();
     }
 
+    static Protos.ScanResult fromDevice(BluetoothDevice device, int rssi) {
+        Protos.ScanResult.Builder p = Protos.ScanResult.newBuilder();
+        p.setDevice(from(device));
+
+        p.setRssi(rssi);
+        return p.build();
+    }
+
     @TargetApi(21)
     static Protos.ScanResult from(BluetoothDevice device, ScanResult scanResult) {
         Protos.ScanResult.Builder p = Protos.ScanResult.newBuilder();

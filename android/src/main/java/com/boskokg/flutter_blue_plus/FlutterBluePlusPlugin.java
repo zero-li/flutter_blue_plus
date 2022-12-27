@@ -5,6 +5,7 @@
 package com.boskokg.flutter_blue_plus;
 
 import android.Manifest;
+import android.annotation.SuppressLint;
 import android.annotation.TargetApi;
 import android.app.Application;
 import android.bluetooth.BluetoothAdapter;
@@ -27,6 +28,7 @@ import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.pm.PackageManager;
 import android.os.Build;
+import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.ParcelUuid;
@@ -148,12 +150,26 @@ public class FlutterBluePlusPlugin implements FlutterPlugin, MethodCallHandler, 
       stateChannel.setStreamHandler(stateHandler);
       mBluetoothManager = (BluetoothManager) application.getSystemService(Context.BLUETOOTH_SERVICE);
       mBluetoothAdapter = mBluetoothManager.getAdapter();
+
+      registerDiscovery();
     }
+  }
+
+  private void registerDiscovery(){
+    IntentFilter intent = new IntentFilter();
+    intent.addAction(BluetoothDevice.ACTION_FOUND);// 用BroadcastReceiver来取得搜索结果
+    intent.addAction(BluetoothDevice.ACTION_BOND_STATE_CHANGED);
+    intent.addAction(BluetoothAdapter.ACTION_DISCOVERY_FINISHED);
+    context.registerReceiver(mReceiverDiscovery, intent);
+
+    log(LogLevel.DEBUG, "context.registerReceiver(mReceiverDiscovery, intent)");
+    Log.e("zgo", "context.registerReceiver(mReceiverDiscovery, intent)");
   }
 
   private void tearDown() {
     synchronized (tearDownLock) {
       Log.d(TAG, "teardown");
+      context.unregisterReceiver(mReceiverDiscovery);
       context = null;
       channel.setMethodCallHandler(null);
       channel = null;
@@ -161,6 +177,8 @@ public class FlutterBluePlusPlugin implements FlutterPlugin, MethodCallHandler, 
       stateChannel = null;
       mBluetoothAdapter = null;
       mBluetoothManager = null;
+      log(LogLevel.DEBUG, "context.unregisterReceiver(mReceiverDiscovery)");
+      Log.e("zgo", "context.unregisterReceiver(mReceiverDiscovery)");
     }
   }
 
@@ -260,9 +278,27 @@ public class FlutterBluePlusPlugin implements FlutterPlugin, MethodCallHandler, 
         ensurePermissionBeforeAction(Build.VERSION.SDK_INT >= Build.VERSION_CODES.S ? Manifest.permission.BLUETOOTH_SCAN : Manifest.permission.ACCESS_FINE_LOCATION, (grantedScan, permissionScan) -> {
           if (grantedScan) {
             ensurePermissionBeforeAction(Build.VERSION.SDK_INT >= Build.VERSION_CODES.S ? Manifest.permission.BLUETOOTH_CONNECT : null, (grantedConnect, permissionConnect) -> {
-              if (grantedConnect)
+              if (grantedConnect){
                 startScan(call, result);
-              else
+              }else
+                result.error(
+                        "no_permissions", String.format("flutter_blue plugin requires %s for scanning", permissionConnect), null);
+            });
+          }
+          else
+            result.error(
+                    "no_permissions", String.format("flutter_blue plugin requires %s for scanning", permissionScan), null);
+        });
+        break;
+      }
+      case "startDiscovery":
+      {
+        ensurePermissionBeforeAction(Build.VERSION.SDK_INT >= Build.VERSION_CODES.S ? Manifest.permission.BLUETOOTH_SCAN : Manifest.permission.ACCESS_FINE_LOCATION, (grantedScan, permissionScan) -> {
+          if (grantedScan) {
+            ensurePermissionBeforeAction(Build.VERSION.SDK_INT >= Build.VERSION_CODES.S ? Manifest.permission.BLUETOOTH_CONNECT : null, (grantedConnect, permissionConnect) -> {
+              if (grantedConnect){
+                startDiscovery(result);
+              }else
                 result.error(
                         "no_permissions", String.format("flutter_blue plugin requires %s for scanning", permissionConnect), null);
             });
@@ -295,7 +331,7 @@ public class FlutterBluePlusPlugin implements FlutterPlugin, MethodCallHandler, 
             p.addDevices(ProtoMaker.from(d));
           }
           result.success(p.build().toByteArray());
-          log(LogLevel.EMERGENCY, "mDevices size: " + mDevices.size());
+          log(LogLevel.DEBUG, "connected mDevices size: " + mDevices.size());
         });
         break;
       }
@@ -308,7 +344,7 @@ public class FlutterBluePlusPlugin implements FlutterPlugin, MethodCallHandler, 
           p.addDevices(ProtoMaker.from(d));
         }
         result.success(p.build().toByteArray());
-        log(LogLevel.EMERGENCY, "mDevices size: " + mDevices.size());
+        log(LogLevel.EMERGENCY, "bonded mDevices size: " + mDevices.size());
         break;
       }
 
@@ -801,7 +837,7 @@ public class FlutterBluePlusPlugin implements FlutterPlugin, MethodCallHandler, 
   private final StreamHandler stateHandler = new StreamHandler() {
     private EventSink sink;
 
-    private final BroadcastReceiver mReceiver = new BroadcastReceiver() {
+    final BroadcastReceiver mReceiver = new BroadcastReceiver() {
       @Override
       public void onReceive(Context context, Intent intent) {
         final String action = intent.getAction();
@@ -837,6 +873,9 @@ public class FlutterBluePlusPlugin implements FlutterPlugin, MethodCallHandler, 
     @Override
     public void onCancel(Object o) {
       sink = null;
+      if(mBluetoothAdapter.isDiscovering()){
+        mBluetoothAdapter.cancelDiscovery();
+      }
       context.unregisterReceiver(mReceiver);
     }
   };
@@ -865,6 +904,10 @@ public class FlutterBluePlusPlugin implements FlutterPlugin, MethodCallHandler, 
     } else {
       stopScan18();
     }
+
+    if(mBluetoothAdapter.isDiscovering()){
+      mBluetoothAdapter.cancelDiscovery();
+    }
   }
 
   private ScanCallback scanCallback21;
@@ -879,6 +922,7 @@ public class FlutterBluePlusPlugin implements FlutterPlugin, MethodCallHandler, 
           super.onScanResult(callbackType, result);
           if(result != null){
             if (!allowDuplicates && result.getDevice() != null && result.getDevice().getAddress() != null) {
+              Log.d(TAG, "getScanCallback21: " + result.getDevice().getName()+ "   "+ result.getDevice().getAddress());
               if (macDeviceScanned.contains(result.getDevice().getAddress())) {
                 return;
               }
@@ -1143,6 +1187,60 @@ public class FlutterBluePlusPlugin implements FlutterPlugin, MethodCallHandler, 
       }
     });
   }
+
+  final BroadcastReceiver mReceiverDiscovery = new BroadcastReceiver() {
+    @Override
+    public void onReceive(Context context, Intent intent) {
+      final String action = intent.getAction();
+
+      if (BluetoothDevice.ACTION_FOUND.equals(action)) {
+        BluetoothDevice device = intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE);
+        if (device.getBluetoothClass().getMajorDeviceClass() == 1536) {
+          Log.d("发现蓝牙设备 ", device.getName() + " / " + device.getAddress() + " allowDuplicates： " + allowDuplicates);
+          if (!allowDuplicates  && device.getAddress() != null) {
+            if (!macDeviceScanned.contains(device.getAddress())) {
+              macDeviceScanned.add(device.getAddress());
+            }
+          }
+
+          Bundle b = intent.getExtras();
+          String str = String.valueOf(b.get("android.bluetooth.device.extra.RSSI"));
+          int rssi = -1;
+          if(!str.isEmpty()){
+            rssi = Integer.parseInt(str);
+          }
+          Protos.ScanResult scanResult = ProtoMaker.fromDevice(device, rssi);
+          invokeMethodUIThread("ScanResult", scanResult.toByteArray());
+        }
+      }else if (BluetoothAdapter.ACTION_DISCOVERY_FINISHED.equals(action)) {
+
+      }
+
+    }
+  };
+
+  /**
+   * 启动装置发现的BluetoothAdapter
+   */
+  @SuppressLint("MissingPermission")
+  private void startDiscovery(Result result) {
+    log(LogLevel.DEBUG, "doDiscovery()");
+
+
+    //registerDiscovery();
+
+    // 若启动了扫描，关闭扫描
+    if (mBluetoothAdapter.isDiscovering()) {
+      mBluetoothAdapter.cancelDiscovery();
+    }
+    //扫描
+    mBluetoothAdapter.startDiscovery();
+
+
+    result.success(null);
+  }
+
+
 
   enum LogLevel
   {

@@ -133,6 +133,7 @@ class FlutterBluePlus {
     List<String> macAddresses = const [],
     Duration? timeout,
     bool allowDuplicates = false,
+    bool scanPrinter = false,
   }) async* {
     var settings = protos.ScanSettings.create()
       ..androidScanMode = scanMode.value
@@ -157,7 +158,11 @@ class FlutterBluePlus {
     _scanResults.add(<ScanResult>[]);
 
     try {
-      await _channel.invokeMethod('startScan', settings.writeToBuffer());
+      var method = 'startScan';
+      if(scanPrinter){
+        method = 'startDiscovery';
+      }
+      await _channel.invokeMethod(method, settings.writeToBuffer());
     } catch (e) {
       if (kDebugMode) {
         print('Error starting scan.');
@@ -202,6 +207,7 @@ class FlutterBluePlus {
     List<String> macAddresses = const [],
     Duration? timeout,
     bool allowDuplicates = false,
+    bool scanPrinter = false,
   }) async {
     await scan(
             scanMode: scanMode,
@@ -209,6 +215,7 @@ class FlutterBluePlus {
             withDevices: withDevices,
             macAddresses: macAddresses,
             timeout: timeout,
+            scanPrinter: scanPrinter,
             allowDuplicates: allowDuplicates)
         .drain();
     return _scanResults.value;

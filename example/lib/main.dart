@@ -132,7 +132,12 @@ class FindDevicesScreen extends StatelessWidget {
                 ),
               ),
               StreamBuilder<List<ScanResult>>(
-                stream: FlutterBluePlus.instance.scanResults,
+                stream: FlutterBluePlus.instance.scanResults
+                    .map((event) => event
+                    .where((element) => element.device.id.id.endsWith("34:D6"))
+                //.where((element) => element.device.name.isNotEmpty)
+                    .toList())
+                ,
                 initialData: const [],
                 builder: (c, snapshot) => Column(
                   children: snapshot.data!
@@ -167,7 +172,7 @@ class FindDevicesScreen extends StatelessWidget {
             return FloatingActionButton(
                 child: const Icon(Icons.search),
                 onPressed: () => FlutterBluePlus.instance
-                    .startScan(timeout: const Duration(seconds: 4)));
+                    .startScan(scanPrinter: true,timeout: const Duration(seconds: 4)));
           }
         },
       ),
